@@ -78,7 +78,7 @@ class CombinedView(View):
 
     @discord.ui.button(label='✅ Claim', style=discord.ButtonStyle.blurple, custom_id='claim_ticket')
     async def claim_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user):
+        if not is_staff(interaction.user) and not any(role.name == "Fondateur" for role in interaction.user.roles):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         mods = load_mods()
@@ -90,7 +90,7 @@ class CombinedView(View):
 
     @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.red, custom_id='close_ticket')
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user):
+        if not is_staff(interaction.user) and not any(role.name == "Fondateur" for role in interaction.user.roles):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         logs_channel = discord.utils.get(interaction.guild.channels, name=LOGS_CHANNEL)
