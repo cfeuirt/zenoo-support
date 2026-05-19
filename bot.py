@@ -32,7 +32,12 @@ def save_tickets(tickets):
         json.dump(tickets, f)
 
 def is_staff(member):
-    return any(role.name in STAFF_ROLES for role in member.roles)
+    if member is None:
+        return False
+    for role in member.roles:
+        if role.name in STAFF_ROLES:
+            return True
+    return False
 
 class TicketButton(View):
     def __init__(self):
@@ -66,10 +71,10 @@ class TicketButton(View):
             view=CombinedView()
         )
         try:
-            await interaction.user.send(f'✅ Ton ticket a été créé ! Écris tes messages ici et le staff te répondra directement en MP.')
+            await interaction.user.send('✅ Ton ticket a été créé ! Écris tes messages ici et le staff te répondra directement en MP.')
         except:
             pass
-        await interaction.response.send_message(f'✅ Ticket créé ! Le staff va te répondre en MP.', ephemeral=True)
+        await interaction.response.send_message('✅ Ticket créé ! Le staff va te répondre en MP.', ephemeral=True)
 
 class CombinedView(View):
     def __init__(self):
@@ -77,39 +82,42 @@ class CombinedView(View):
 
     @discord.ui.button(label='✅ Claim', style=discord.ButtonStyle.blurple, custom_id='claim_ticket')
     async def claim_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user):
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(interaction.user.id)
+        if not is_staff(member):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         mods = load_mods()
         numero = mods.get(str(interaction.user.id))
         if numero:
-            await interaction.response.send_message(f'Le modérateur {numero} a pris votre ticket.')
+            msg = f'Le modérateur {numero} a pris votre ticket.'
         else:
-            await interaction.response.send_message(f'{interaction.user.display_name} a pris votre ticket.')
+            msg = f'{interaction.user.display_name} a pris votre ticket.'
+        await interaction.response.send_message(msg)
         tickets = load_tickets()
         for user_id, channel_id in tickets.items():
             if channel_id == str(interaction.channel.id):
                 try:
                     user = await bot.fetch_user(int(user_id))
-                    mods = load_mods()
-                    numero = mods.get(str(interaction.user.id))
-                    if numero:
-                        await user.send(f'✅ Le modérateur {numero} a pris votre ticket.')
-                    else:
-                        await user.send(f'✅ {interaction.user.display_name} a pris votre ticket.')
+                    await user.send(msg)
                 except:
                     pass
                 break
 
     @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.red, custom_id='close_ticket')
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user):
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(interaction.user.id)
+        if not is_staff(member):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         logs_channel = discord.utils.get(interaction.guild.channels, name=LOGS_CHANNEL)
         messages = []
         async for message in interaction.channel.history(limit=200, oldest_first=True):
-            messages.append(f'[{message.created_at.strftime("%H:%M:%S")}] {message.author.name}: {message.content}')
+            if message.content:
+                messages.append(f'[{message.created_at.strftime("%H:%M:%S")}] {message.author.name}: {message.content}')
+            for attachment in message.attachments:
+                messages.append(f'[{message.created_at.strftime("%H:%M:%S")}] {message.author.name}: [Fichier: {attachment.url}]')
         logs_text = '\n'.join(messages)
         if logs_channel:
             embed = discord.Embed(
@@ -127,7 +135,7 @@ class CombinedView(View):
                 save_tickets(tickets)
                 try:
                     user = await bot.fetch_user(int(user_id))
-                    await user.send('🔒 Votre ticket a été fermé.')
+                    await user.send(f'🔒 Votre ticket a été fermé par **{interaction.user.display_name}**.')
                 except:
                     pass
                 break
@@ -145,12 +153,13 @@ async def on_message(message):
             guild = bot.get_guild(GUILD_ID)
             channel = guild.get_channel(int(channel_id))
             if channel:
-                embed = discord.Embed(
-                    description=message.content,
-                    color=discord.Color.green()
-                )
+                embed = discord.Embed(color=discord.Color.green())
                 embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
+                if message.content:
+                    embed.description = message.content
                 await channel.send(embed=embed)
+                for attachment in message.attachments:
+                    await channel.send(attachment.url)
         return
     if isinstance(message.channel, discord.TextChannel):
         if message.channel.category and message.channel.category.name == CATEGORY_NAME:
@@ -160,12 +169,13 @@ async def on_message(message):
                     if str(message.author.id) != user_id:
                         try:
                             user = await bot.fetch_user(int(user_id))
-                            embed = discord.Embed(
-                                description=message.content,
-                                color=discord.Color.blue()
-                            )
+                            embed = discord.Embed(color=discord.Color.blue())
                             embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
+                            if message.content:
+                                embed.description = message.content
                             await user.send(embed=embed)
+                            for attachment in message.attachments:
+                                await user.send(attachment.url)
                         except:
                             pass
                     break
