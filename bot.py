@@ -10,7 +10,7 @@ ROLES_STAFF = ['Fondateur', 'Modérateur', 'Staff']
 tickets = {}
 
 def is_staff(member):
-    return any(role.name in ROLES_STAFF for role in member.roles)
+    return any(any(r in role.name for r in ROLES_STAFF) for role in member.roles)
 
 class TicketView(discord.ui.View):
     def __init__(self):
@@ -35,8 +35,8 @@ class TicketView(discord.ui.View):
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
         }
-        for role in staff_roles:
-            if role:
+        for role in guild.roles:
+            if any(r in role.name for r in ROLES_STAFF):
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
         channel = await guild.create_text_channel(
@@ -119,7 +119,6 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Membre écrit en MP → envoi au salon staff
     if isinstance(message.channel, discord.DMChannel):
         member_id = message.author.id
         if member_id in tickets and tickets[member_id]['status'] == 'accepted':
@@ -129,7 +128,6 @@ async def on_message(message):
                 await channel.send(f'💬 **{message.author.name}** : {message.content}')
         return
 
-    # Staff écrit dans le salon ticket → envoi en MP au membre
     if message.guild:
         for member_id, data in list(tickets.items()):
             if data.get('channel') == message.channel.id and data.get('status') == 'accepted':
