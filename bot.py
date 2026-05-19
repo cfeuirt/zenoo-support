@@ -6,11 +6,11 @@ import asyncio
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-ROLES_STAFF = ['Fondateur', 'Modérateur', 'Staff']
+ROLES_STAFF = ['Fondateur 👑', 'Modérateur 💡', 'Staff 💪']
 tickets = {}
 
 def is_staff(member):
-    return any(any(r in role.name for r in ROLES_STAFF) for role in member.roles)
+    return any(role.name in ROLES_STAFF for role in member.roles)
 
 class TicketView(discord.ui.View):
     def __init__(self):
@@ -31,12 +31,11 @@ class TicketView(discord.ui.View):
             await interaction.response.send_message('❌ Je ne peux pas t\'envoyer de MP ! Active tes MPs.', ephemeral=True)
             return
 
-        staff_roles = [discord.utils.get(guild.roles, name=r) for r in ROLES_STAFF]
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
         }
         for role in guild.roles:
-            if any(r in role.name for r in ROLES_STAFF):
+            if role.name in ROLES_STAFF:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
         channel = await guild.create_text_channel(
@@ -68,7 +67,6 @@ class StaffView(discord.ui.View):
         if member:
             await member.send(f'✅ Ton ticket a été **accepté** par **{interaction.user.name}** ! Tu peux maintenant expliquer ton problème ici en MP.')
             tickets[self.member_id]['status'] = 'accepted'
-            tickets[self.member_id]['staff_channel'] = interaction.channel.id
 
         await interaction.response.send_message(f'✅ Ticket accepté par {interaction.user.mention} ! Écrivez dans ce salon pour parler au membre.')
         await interaction.message.edit(view=CloseView(self.member_id))
