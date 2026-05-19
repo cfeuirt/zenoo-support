@@ -13,12 +13,23 @@ CATEGORY_NAME = "Besoin d'aide 🆘"
 STAFF_ROLES = ['Fondateur', 'Modérateur', 'Staff']
 LOGS_CHANNEL = 'logs-tickets'
 MOD_FILE = 'mods.json'
+TICKETS_FILE = 'tickets.json'
 
 def load_mods():
     if os.path.exists(MOD_FILE):
         with open(MOD_FILE, 'r') as f:
             return json.load(f)
     return {}
+
+def load_tickets():
+    if os.path.exists(TICKETS_FILE):
+        with open(TICKETS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_tickets(tickets):
+    with open(TICKETS_FILE, 'w') as f:
+        json.dump(tickets, f)
 
 def is_staff(member):
     return any(role.name in STAFF_ROLES for role in member.roles)
@@ -48,12 +59,15 @@ class TicketButton(View):
             category=category,
             overwrites=overwrites
         )
+        tickets = load_tickets()
+        tickets[str(interaction.user.id)] = str(channel.id)
+        save_tickets(tickets)
         await channel.send(
             f'👋 Bonjour {interaction.user.mention} ! Un membre du staff va vous répondre.\n\nUtilisez les boutons ci-dessous :',
             view=CombinedView()
         )
         try:
-            await interaction.user.send(f'✅ Ton ticket a été créé : {channel.mention}')
+            await interaction.user.send(f'✅ Ton ticket a été créé ! Tu peux répondre directement ici en MP et le staff te verra dans le salon.')
         except:
             pass
         await interaction.response.send_message(f'✅ Ticket créé : {channel.mention}', ephemeral=True)
@@ -77,7 +91,7 @@ class CombinedView(View):
     @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.red, custom_id='close_ticket')
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
         if not is_staff(interaction.user):
-            await interaction.response.send_message('❌ Tu n\'as pas la permission de fermer ce ticket.', ephemeral=True)
+            await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         logs_channel = discord.utils.get(interaction.guild.channels, name=LOGS_CHANNEL)
         messages = []
@@ -93,8 +107,58 @@ class CombinedView(View):
             )
             embed.set_footer(text=f'Fermé par {interaction.user.name}')
             await logs_channel.send(embed=embed)
+        tickets = load_tickets()
+        for user_id, channel_id in list(tickets.items()):
+            if channel_id == str(interaction.channel.id):
+                del tickets[user_id]
+                save_tickets(tickets)
+                try:
+                    user = await bot.fetch_user(int(user_id))
+                    await user.send('🔒 Votre ticket a été fermé.')
+                except:
+                    pass
+                break
         await interaction.response.send_message('🔒 Fermeture du ticket...')
         await interaction.channel.delete()
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    if isinstance(message.channel, discord.DMChannel):
+        tickets = load_tickets()
+        channel_id = tickets.get(str(message.author.id))
+        if channel_id:
+            guild = bot.get_guild(GUILD_ID)
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                embed = discord.Embed(
+                    description=message.content,
+                    color=discord.Color.green()
+                )
+                embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
+                await channel.send(embed=embed)
+        return
+    if isinstance(message.channel, discord.TextChannel):
+        if message.channel.category and message.channel.category.name == CATEGORY_NAME:
+            if message.author.bot:
+                return
+            tickets = load_tickets()
+            for user_id, channel_id in tickets.items():
+                if channel_id == str(message.channel.id):
+                    if str(message.author.id) != user_id:
+                        try:
+                            user = await bot.fetch_user(int(user_id))
+                            embed = discord.Embed(
+                                description=message.content,
+                                color=discord.Color.blue()
+                            )
+                            embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
+                            await user.send(embed=embed)
+                        except:
+                            pass
+                    break
+    await bot.process_commands(message)
 
 @bot.event
 async def on_ready():
