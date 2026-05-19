@@ -42,13 +42,13 @@ class TicketButton(View):
     async def create_ticket(self, interaction: discord.Interaction, button: Button):
         guild = interaction.guild
         category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
-        existing = discord.utils.get(guild.channels, name=f'ticket-{interaction.user.name.lower()}')
-        if existing:
-            await interaction.response.send_message(f'❌ Tu as déjà un ticket ouvert : {existing.mention}', ephemeral=True)
+        tickets = load_tickets()
+        if str(interaction.user.id) in tickets:
+            await interaction.response.send_message('❌ Tu as déjà un ticket ouvert !', ephemeral=True)
             return
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.user: discord.PermissionOverwrite(read_messages=False),
         }
         for role_name in STAFF_ROLES:
             role = discord.utils.get(guild.roles, name=role_name)
@@ -59,18 +59,17 @@ class TicketButton(View):
             category=category,
             overwrites=overwrites
         )
-        tickets = load_tickets()
         tickets[str(interaction.user.id)] = str(channel.id)
         save_tickets(tickets)
         await channel.send(
-            f'👋 Bonjour {interaction.user.mention} ! Un membre du staff va vous répondre.\n\nUtilisez les boutons ci-dessous :',
+            f'👋 Ticket de **{interaction.user.name}** ! Un membre du staff va répondre.\n\nUtilisez les boutons ci-dessous :',
             view=CombinedView()
         )
         try:
-            await interaction.user.send(f'✅ Ton ticket a été créé ! Tu peux répondre directement ici en MP et le staff te verra dans le salon.')
+            await interaction.user.send(f'✅ Ton ticket a été créé ! Écris tes messages ici et le staff te répondra directement en MP.')
         except:
             pass
-        await interaction.response.send_message(f'✅ Ticket créé : {channel.mention}', ephemeral=True)
+        await interaction.response.send_message(f'✅ Ticket créé ! Le staff va te répondre en MP.', ephemeral=True)
 
 class CombinedView(View):
     def __init__(self):
@@ -78,7 +77,7 @@ class CombinedView(View):
 
     @discord.ui.button(label='✅ Claim', style=discord.ButtonStyle.blurple, custom_id='claim_ticket')
     async def claim_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user) and not any(role.name == "Fondateur" for role in interaction.user.roles):
+        if not is_staff(interaction.user):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         mods = load_mods()
@@ -87,10 +86,24 @@ class CombinedView(View):
             await interaction.response.send_message(f'Le modérateur {numero} a pris votre ticket.')
         else:
             await interaction.response.send_message(f'{interaction.user.display_name} a pris votre ticket.')
+        tickets = load_tickets()
+        for user_id, channel_id in tickets.items():
+            if channel_id == str(interaction.channel.id):
+                try:
+                    user = await bot.fetch_user(int(user_id))
+                    mods = load_mods()
+                    numero = mods.get(str(interaction.user.id))
+                    if numero:
+                        await user.send(f'✅ Le modérateur {numero} a pris votre ticket.')
+                    else:
+                        await user.send(f'✅ {interaction.user.display_name} a pris votre ticket.')
+                except:
+                    pass
+                break
 
     @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.red, custom_id='close_ticket')
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        if not is_staff(interaction.user) and not any(role.name == "Fondateur" for role in interaction.user.roles):
+        if not is_staff(interaction.user):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
         logs_channel = discord.utils.get(interaction.guild.channels, name=LOGS_CHANNEL)
@@ -141,8 +154,6 @@ async def on_message(message):
         return
     if isinstance(message.channel, discord.TextChannel):
         if message.channel.category and message.channel.category.name == CATEGORY_NAME:
-            if message.author.bot:
-                return
             tickets = load_tickets()
             for user_id, channel_id in tickets.items():
                 if channel_id == str(message.channel.id):
