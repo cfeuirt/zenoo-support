@@ -1,207 +1,80 @@
 import discord
 from discord.ext import commands
-from discord.ui import Button, View
-import json
 import os
-from datetime import datetime
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-GUILD_ID = 1506035311048917052
-CATEGORY_NAME = "Besoin d'aide 🆘"
-STAFF_ROLES = ['Fondateur', 'Modérateur', 'Staff']
-LOGS_CHANNEL = 'logs-tickets'
-MOD_FILE = 'mods.json'
-TICKETS_FILE = 'tickets.json'
-
-def load_mods():
-    if os.path.exists(MOD_FILE):
-        with open(MOD_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def load_tickets():
-    if os.path.exists(TICKETS_FILE):
-        with open(TICKETS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_tickets(tickets):
-    with open(TICKETS_FILE, 'w') as f:
-        json.dump(tickets, f)
+ROLES_STAFF = ['Fondateur', 'Modérateur', 'Staff']
 
 def is_staff(member):
-    if member is None:
-        return False
-    for role in member.roles:
-        if role.name in STAFF_ROLES:
-            return True
-    return False
+    return any(role.name in ROLES_STAFF for role in member.roles)
 
-def get_staff_name(member):
-    mods = load_mods()
-    numero = mods.get(str(member.id))
-    for role_name in ['Fondateur', 'Modérateur', 'Staff']:
-        for role in member.roles:
-            if role.name == role_name:
-                if numero:
-                    return f'{role_name} {numero}'
-                else:
-                    return f'{role_name}'
-    return member.display_name
-
-class TicketButton(View):
+class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label='📩 Créer un ticket', style=discord.ButtonStyle.green, custom_id='create_ticket')
-    async def create_ticket(self, interaction: discord.Interaction, button: Button):
+    @discord.ui.button(label='📩 Créer un ticket', style=discord.ButtonStyle.primary, custom_id='create_ticket')
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
-        category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
-        tickets = load_tickets()
-        if str(interaction.user.id) in tickets:
-            await interaction.response.send_message('❌ Tu as déjà un ticket ouvert !', ephemeral=True)
+        member = interaction.user
+
+        existing = discord.utils.get(guild.text_channels, name=f'ticket-{member.name.lower()}')
+        if existing:
+            await interaction.response.send_message(f'Tu as déjà un ticket ouvert : {existing.mention}', ephemeral=True)
             return
+
+        staff_roles = [discord.utils.get(guild.roles, name=r) for r in ROLES_STAFF]
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=False),
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            member: discord.PermissionOverwrite(view_channel=True, send_messages=True),
         }
-        for role_name in STAFF_ROLES:
-            role = discord.utils.get(guild.roles, name=role_name)
+        for role in staff_roles:
             if role:
-                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
         channel = await guild.create_text_channel(
-            f'ticket-{interaction.user.name.lower()}',
-            category=category,
+            name=f'ticket-{member.name.lower()}',
             overwrites=overwrites
         )
-        tickets[str(interaction.user.id)] = str(channel.id)
-        save_tickets(tickets)
-        await channel.send(
-            f'👋 Ticket de **{interaction.user.name}** ! Un membre du staff va répondre.\n\nUtilisez les boutons ci-dessous :',
-            view=CombinedView()
-        )
-        try:
-            await interaction.user.send('✅ Ton ticket a été créé ! Écris tes messages ici et le staff te répondra directement en MP.')
-        except:
-            pass
-        await interaction.response.send_message('✅ Ticket créé ! Le staff va te répondre en MP.', ephemeral=True)
 
-class CombinedView(View):
+        await interaction.response.send_message(f'Ton ticket a été créé : {channel.mention}', ephemeral=True)
+        await channel.send(
+            f'Bonjour {member.mention} ! Le staff va te répondre rapidement.\n\nStaff : utilisez les boutons ci-dessous.',
+            view=StaffTicketView()
+        )
+
+class StaffTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label='✅ Claim', style=discord.ButtonStyle.blurple, custom_id='claim_ticket')
-    async def claim_ticket(self, interaction: discord.Interaction, button: Button):
-        guild = bot.get_guild(GUILD_ID)
-        member = guild.get_member(interaction.user.id)
-        if not is_staff(member):
+    @discord.ui.button(label='✅ Accepter', style=discord.ButtonStyle.success, custom_id='accept_ticket')
+    async def accept_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
-        staff_name = get_staff_name(member)
-        msg = f'Le {staff_name} a pris votre ticket.'
-        await interaction.response.send_message(msg)
-        tickets = load_tickets()
-        for user_id, channel_id in tickets.items():
-            if channel_id == str(interaction.channel.id):
-                try:
-                    user = await bot.fetch_user(int(user_id))
-                    await user.send(msg)
-                except:
-                    pass
-                break
+        await interaction.response.send_message(f'✅ Ticket accepté par {interaction.user.mention} !')
 
-    @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.red, custom_id='close_ticket')
-    async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        guild = bot.get_guild(GUILD_ID)
-        member = guild.get_member(interaction.user.id)
-        if not is_staff(member):
+    @discord.ui.button(label='🔒 Fermer', style=discord.ButtonStyle.danger, custom_id='close_ticket')
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
-        logs_channel = discord.utils.get(interaction.guild.channels, name=LOGS_CHANNEL)
-        messages = []
-        async for message in interaction.channel.history(limit=200, oldest_first=True):
-            if message.content:
-                messages.append(f'[{message.created_at.strftime("%H:%M:%S")}] {message.author.name}: {message.content}')
-            for attachment in message.attachments:
-                messages.append(f'[{message.created_at.strftime("%H:%M:%S")}] {message.author.name}: [Fichier: {attachment.url}]')
-        logs_text = '\n'.join(messages)
-        if logs_channel:
-            embed = discord.Embed(
-                title=f'📜 Logs - {interaction.channel.name}',
-                description=f'```{logs_text[:3900]}```',
-                color=discord.Color.orange(),
-                timestamp=datetime.utcnow()
-            )
-            embed.set_footer(text=f'Fermé par {interaction.user.name}')
-            await logs_channel.send(embed=embed)
-        tickets = load_tickets()
-        for user_id, channel_id in list(tickets.items()):
-            if channel_id == str(interaction.channel.id):
-                del tickets[user_id]
-                save_tickets(tickets)
-                try:
-                    user = await bot.fetch_user(int(user_id))
-                    await user.send(f'🔒 Votre ticket a été fermé par **{get_staff_name(member)}**.')
-                except:
-                    pass
-                break
-        await interaction.response.send_message('🔒 Fermeture du ticket...')
+        await interaction.response.send_message('🔒 Ticket fermé. Salon supprimé dans 5 secondes...')
+        import asyncio
+        await asyncio.sleep(5)
         await interaction.channel.delete()
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    if isinstance(message.channel, discord.DMChannel):
-        tickets = load_tickets()
-        channel_id = tickets.get(str(message.author.id))
-        if channel_id:
-            guild = bot.get_guild(GUILD_ID)
-            channel = guild.get_channel(int(channel_id))
-            if channel:
-                if message.content:
-                    await channel.send(f'**{message.author.name}** : {message.content}')
-                for attachment in message.attachments:
-                    await channel.send(f'**{message.author.name}** : {attachment.url}')
-        return
-    if isinstance(message.channel, discord.TextChannel):
-        if message.channel.category and message.channel.category.name == CATEGORY_NAME:
-            tickets = load_tickets()
-            for user_id, channel_id in tickets.items():
-                if channel_id == str(message.channel.id):
-                    if str(message.author.id) != user_id:
-                        guild = bot.get_guild(GUILD_ID)
-                        member = guild.get_member(message.author.id)
-                        staff_name = get_staff_name(member) if is_staff(member) else message.author.display_name
-                        try:
-                            user = await bot.fetch_user(int(user_id))
-                            if message.content:
-                                await user.send(f'**{staff_name}** : {message.content}')
-                            for attachment in message.attachments:
-                                await user.send(f'**{staff_name}** : {attachment.url}')
-                        except:
-                            pass
-                    break
-    await bot.process_commands(message)
-
-@bot.event
-async def on_ready():
-    bot.add_view(TicketButton())
-    bot.add_view(CombinedView())
-    print(f'Bot tickets connecte : {bot.user}')
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticket(ctx):
-    embed = discord.Embed(
-        title='🎫 Support Zenoo RP',
-        description='Clique sur le bouton ci-dessous pour ouvrir un ticket.\nNotre staff vous répondra dès que possible.',
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed, view=TicketButton())
-    await ctx.message.delete()
+    await ctx.send('📩 Clique sur le bouton pour créer un ticket :', view=TicketView())
+
+@bot.event
+async def on_ready():
+    bot.add_view(TicketView())
+    bot.add_view(StaffTicketView())
+    print(f'Bot connecté : {bot.user}')
 
 TOKEN = os.getenv('TOKEN')
 bot.run(TOKEN)
