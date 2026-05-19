@@ -39,6 +39,18 @@ def is_staff(member):
             return True
     return False
 
+def get_staff_name(member):
+    mods = load_mods()
+    numero = mods.get(str(member.id))
+    for role_name in ['Fondateur', 'Modérateur', 'Staff']:
+        for role in member.roles:
+            if role.name == role_name:
+                if numero:
+                    return f'{role_name} {numero}'
+                else:
+                    return f'{role_name}'
+    return member.display_name
+
 class TicketButton(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -87,12 +99,8 @@ class CombinedView(View):
         if not is_staff(member):
             await interaction.response.send_message('❌ Tu n\'as pas la permission.', ephemeral=True)
             return
-        mods = load_mods()
-        numero = mods.get(str(interaction.user.id))
-        if numero:
-            msg = f'Le modérateur {numero} a pris votre ticket.'
-        else:
-            msg = f'{interaction.user.display_name} a pris votre ticket.'
+        staff_name = get_staff_name(member)
+        msg = f'Le {staff_name} a pris votre ticket.'
         await interaction.response.send_message(msg)
         tickets = load_tickets()
         for user_id, channel_id in tickets.items():
@@ -135,7 +143,7 @@ class CombinedView(View):
                 save_tickets(tickets)
                 try:
                     user = await bot.fetch_user(int(user_id))
-                    await user.send(f'🔒 Votre ticket a été fermé par **{interaction.user.display_name}**.')
+                    await user.send(f'🔒 Votre ticket a été fermé par **{get_staff_name(member)}**.')
                 except:
                     pass
                 break
@@ -153,13 +161,10 @@ async def on_message(message):
             guild = bot.get_guild(GUILD_ID)
             channel = guild.get_channel(int(channel_id))
             if channel:
-                embed = discord.Embed(color=discord.Color.green())
-                embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
                 if message.content:
-                    embed.description = message.content
-                await channel.send(embed=embed)
+                    await channel.send(f'**{message.author.name}** : {message.content}')
                 for attachment in message.attachments:
-                    await channel.send(attachment.url)
+                    await channel.send(f'**{message.author.name}** : {attachment.url}')
         return
     if isinstance(message.channel, discord.TextChannel):
         if message.channel.category and message.channel.category.name == CATEGORY_NAME:
@@ -167,15 +172,15 @@ async def on_message(message):
             for user_id, channel_id in tickets.items():
                 if channel_id == str(message.channel.id):
                     if str(message.author.id) != user_id:
+                        guild = bot.get_guild(GUILD_ID)
+                        member = guild.get_member(message.author.id)
+                        staff_name = get_staff_name(member) if is_staff(member) else message.author.display_name
                         try:
                             user = await bot.fetch_user(int(user_id))
-                            embed = discord.Embed(color=discord.Color.blue())
-                            embed.set_author(name=message.author.name, icon_url=message.author.display_avatar.url)
                             if message.content:
-                                embed.description = message.content
-                            await user.send(embed=embed)
+                                await user.send(f'**{staff_name}** : {message.content}')
                             for attachment in message.attachments:
-                                await user.send(attachment.url)
+                                await user.send(f'**{staff_name}** : {attachment.url}')
                         except:
                             pass
                     break
